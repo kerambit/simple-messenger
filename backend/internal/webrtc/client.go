@@ -24,7 +24,7 @@ func (c *Client) ReadPump() {
 		err := c.Conn.ReadJSON(&msg)
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("error: %v", err)
+				log.Printf("websocket.IsUnexpectedCloseError: %v", err)
 			} else {
 				log.Printf("error: %v", err)
 			}
