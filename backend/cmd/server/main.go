@@ -2,20 +2,58 @@ package main
 
 import (
 	"fmt"
+	"github.com/gorilla/websocket"
+	"github.com/kerambit/simple-messenger/internal/webrtc"
+	"log"
+	"net/http"
 )
 
-//TIP <p>To run your code, right-click the code and select <b>Run</b>.</p> <p>Alternatively, click
-// the <icon src="AllIcons.Actions.Execute"/> icon in the gutter and select the <b>Run</b> menu item from here.</p>
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	// add domain validation in prod mode
+	CheckOrigin: func(r *http.Request) bool { return true },
+}
+
+func serveWs(hub *webrtc.Hub, w http.ResponseWriter, r *http.Request) {
+	userID := r.URL.Query().Get("userId")
+	if userID == "" {
+		log.Println("userId is required")
+		http.Error(w, "User ID is required", http.StatusBadRequest)
+		return
+	}
+
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	client := &webrtc.Client{
+		ID:   userID,
+		Conn: conn,
+		Hub:  hub,
+		Send: make(chan *webrtc.Message, 256),
+	}
+
+	client.Hub.Register <- client
+
+	go client.WritePump()
+	go client.ReadPump()
+}
 
 func main() {
-	//TIP <p>Press <shortcut actionId="ShowIntentionActions"/> when your caret is at the underlined text
-	// to see how GoLand suggests fixing the warning.</p><p>Alternatively, if available, click the lightbulb to view possible fixes.</p>
-	s := "gopher"
-	fmt.Printf("Hello and welcome, %s!\n", s)
+	hub := webrtc.NewHub()
+	go hub.Run()
 
-	for i := 1; i <= 5; i++ {
-		//TIP <p>To start your debugging session, right-click your code in the editor and select the Debug option.</p> <p>We have set one <icon src="AllIcons.Debugger.Db_set_breakpoint"/> breakpoint
-		// for you, but you can always add more by pressing <shortcut actionId="ToggleLineBreakpoint"/>.</p>
-		fmt.Println("i =", 100/i)
+	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		serveWs(hub, w, r)
+	})
+
+	port := "9000"
+	log.Printf("🚀 Server starting on port %s", port)
+	err := http.ListenAndServe(fmt.Sprintf(":%s", port), nil)
+	if err != nil {
+		log.Fatal("ListenAndServe: ", err)
 	}
 }
