@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Go WebRTC Messenger</title>
+    <style>
+        body { font-family: sans-serif; background: #2c2c2c; color: #f0f0f0; display: flex; flex-direction: column; align-items: center; }
+        .videos { display: flex; gap: 20px; margin-top: 20px; }
+        video { width: 400px; border-radius: 8px; background: #000; }
+        .controls { margin-top: 20px; display: flex; gap: 10px; align-items: center; }
+        input, button { padding: 10px; border-radius: 5px; border: none; font-size: 16px; }
+        button { background: #007bff; color: white; cursor: pointer; }
+        #myId { background: #444; padding: 10px; border-radius: 5px; }
+    </style>
+</head>
+<body>
+<h1>Go WebRTC Messenger</h1>
+<p>Ваш ID: <b id="myId">Загрузка...</b></p>
+
+<div class="controls">
+    <input type="text" id="targetIdInput" placeholder="Введите ID собеседника">
+    <button id="callButton">📞 Позвонить</button>
+</div>
+
+<div class="videos">
+    <div>
+        <h3>Вы</h3>
+        <video id="localVideo" autoplay playsinline muted></video>
+    </div>
+    <div>
+        <h3>Собеседник</h3>
+        <video id="remoteVideo" autoplay playsinline></video>
+    </div>
+</div>
+
+<script>
+    // =================================================================
+    // 1. Init configuration & setup
+    // =================================================================
+
+    const localVideo = document.getElementById('localVideo');
+    const remoteVideo = document.getElementById('remoteVideo');
+    const callButton = document.getElementById('callButton');
+    const targetIdInput = document.getElementById('targetIdInput');
+    const myIdElement = document.getElementById('myId');
+
+    // Generate unique id
+    const myId = 'user-' + Math.floor(Math.random() * 1000);
+    myIdElement.textContent = myId;
+    const ws = new WebSocket(`ws://localhost:9000/ws?userId=${myId}`);
+
+    // RTCPeerConnection configuration
+    const configuration = {
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+    };
+    let peerConnection;
+    let localStream;
+
+    // =================================================================
+    // 2. WSS logic
+    // =================================================================
+
+    // handler of incoming msgs
+    ws.onmessage = async (event) => {
+        const message = JSON.parse(event.data);
+        console.log('Received message:', message);
+
+        switch (message.event) {
+            case 'offer':
+                // offer for call
+                await handleOffer(message.data, message.senderId);
+                break;
+            case 'answer':
+                // answer to your request
+                await handleAnswer(message.data);
+                break;
+            case 'candidate':
+                // ICE candidate to establish connection
+                await handleCandidate(message.data);
+                break;
+            default:
+                break;
+        }
+    };
+
+    ws.onopen = () => {
+        console.log('WebSocket connection established');
+    };
+
+    // send msg to signal server
+    function sendMessage(event, data, targetId) {
+        const message = { event, data, targetId };
+        ws.send(JSON.stringify(message));
+    }
+
+    // =================================================================
+    // 3. WEBRTC
+    // =================================================================
+
+    // init media & PeerConnection
+    async function initialize() {
+        // access to camera & mic
+        localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        localVideo.srcObject = localStream;
+
+        // create RTCPeerConnection
+        peerConnection = new RTCPeerConnection(configuration);
+
+        // adding media to connection
+        localStream.getTracks().forEach(track => {
+            peerConnection.addTrack(track, localStream);
+        });
+
+        // handle media stream from our friend
+        peerConnection.ontrack = (event) => {
+            remoteVideo.srcObject = event.streams[0];
+        };
+
+        // handle generating ICE candidate
+        peerConnection.onicecandidate = (event) => {
+            if (event.candidate) {
+                // send candidate to server
+                sendMessage('candidate', event.candidate, targetIdInput.value);
+            }
+        };
+    }
+
+    // create offer for call
+    async function startCall() {
+        const targetId = targetIdInput.value;
+        if (!targetId) {
+            alert('Enter id of your friend!');
+            return;
+        }
+
+        console.log(`Calling to ${targetId}...`);
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+
+        // sending offer
+        sendMessage('offer', offer, targetId);
+    }
+
+    async function handleOffer(offer, senderId) {
+        console.log(`Incoming call from ${senderId}...`);
+        targetIdInput.value = senderId;
+
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
+
+        sendMessage('answer', answer, senderId);
+    }
+
+    // handle incoming answer
+    async function handleAnswer(answer) {
+        console.log('Received response, establish connection...');
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+    }
+
+    // handle incoming ICE candidate
+    async function handleCandidate(candidate) {
+        try {
+            await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (e) {
+            console.error('Error adding ICE candidate:', e);
+        }
+    }
+
+
+    // =================================================================
+    // 4. STARt
+    // =================================================================
+
+    callButton.addEventListener('click', startCall);
+    initialize();
+
+</script>
+</body>
+</html>
