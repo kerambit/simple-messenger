@@ -6,6 +6,8 @@ import (
 	"github.com/kerambit/simple-messenger/internal/webrtc"
 	"log"
 	"net/http"
+	"os"
+	"path"
 )
 
 var upgrader = websocket.Upgrader{
@@ -42,6 +44,30 @@ func serveWs(hub *webrtc.Hub, w http.ResponseWriter, r *http.Request) {
 	go client.ReadPump()
 }
 
+func serveHome(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	cwd, _ := os.Getwd()
+
+	htmlPath := path.Join(cwd, "static", "index.html")
+
+	if _, err := os.Stat(htmlPath); os.IsNotExist(err) {
+		http.Error(w, "HTML file not found", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	http.ServeFile(w, r, htmlPath)
+}
+
 func main() {
 	hub := webrtc.NewHub()
 	go hub.Run()
@@ -49,6 +75,8 @@ func main() {
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		serveWs(hub, w, r)
 	})
+
+	http.HandleFunc("/", serveHome)
 
 	port := "9000"
 	log.Printf("🚀 Server starting on port %s", port)
