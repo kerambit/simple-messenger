@@ -19,7 +19,6 @@ func (c *Client) ReadPump() {
 	}()
 
 	for {
-		//var msg Message
 		var msg map[string]interface{}
 		err := c.Conn.ReadJSON(&msg)
 		if err != nil {
@@ -30,10 +29,6 @@ func (c *Client) ReadPump() {
 			}
 			break
 		}
-
-		//log.Println("Received msg: ", msg)
-		//msg.SenderID = c.ID
-		//c.Hub.Broadcast <- &msg
 
 		log.Println("Received msg event: ", msg["event"])
 
